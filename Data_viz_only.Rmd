@@ -1,0 +1,716 @@
+---
+title: "General_data_viz_script"
+author: "Kristian Hungeberg"
+date: "2023-12-14"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+  pdf_document:
+    toc: true
+    toc_depth: 3
+---
+
+<style>
+/* Increase the width of the TOC */
+.tocify-wrapper {
+    width: 500px; /* Adjust the width as needed */
+}
+/* Adjust main content margin to accommodate the wider TOC */
+<!-- .main-container { -->
+<!--     margin-left: 320px; /* Adjust the margin as needed */ -->
+<!-- } -->
+<!-- </style> -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load and preprocess data
+
+
+
+## Loading
+
+```{r,echo=T,message=FALSE,warning=F}
+### Package loading
+library(tidyverse) ## For most data wrangling and visualization
+library(gridExtra) ## For grids of plots
+library(broom) ## For summarising statistical objects
+library(moderndive) ## For datasets and bootstrapping
+library(glue) ## string tools 
+library(readxl) ## read excel sheets 
+library(ggridges) ## For ridgeplots
+
+### Load data here
+
+Data <- palmerpenguins::penguins 
+```
+
+## Preprocessing
+
+This is commented out since i found the penguin dataset more fitted for a display of the potential of this project. However all you need to do is to 
+
+### Classification of features
+```{r,echo=TRUE}
+## Classification of variables (Numericals,categoricals and strings) if not already correctly identified
+
+### Classify categorical values as factors
+
+Data <- Data %>%
+  mutate(across(c("species","island","sex","year"),as.factor))
+
+### Define the names of the categorical values
+categorical_features <- Data %>%
+  select(where(is.factor)) %>% colnames()
+
+### Classify numerical features
+
+Data <- Data %>%
+  mutate(across(c("bill_length_mm","bill_depth_mm","flipper_length_mm","body_mass_g"),as.numeric))
+
+### Define the names of numerical features
+
+numerical_features <- Data %>% select(where(is.numeric)) %>% colnames()
+
+# -------- CHARACTER FEATURES SHOULD BE OMITTED AT CURRENT VERSION -------------
+
+# ### Strings/character features
+#
+# # -------- Define Character features -------------- #
+
+
+```
+
+### Data cleaning
+
+## Addition of aggregate columns
+
+This section is mainly for adding aggregate variables to the data. 
+
+# Data vizualisation
+
+## Purpose of project
+
+NOTE: ------PROJECT IS STILL UNDER CONSTRUCTION ----------
+
+The purpose of this project is to have a handy script for getting an introduction to ANY data that can be presented in a dataframe. The same results here could be reproduced by creating the plots one by one in either a pivot table in excel or just writing code for each plot. I find this process very tedious and time consuming, so if dataset doesn't have too many features, i can use this script to get a quick idea of future analyses and relations between the features in the data. 
+
+The only "manual" work in this is the preprocessing step where we define categorical and numerical variables. As for now this project does not have a section for character/string features so they will have to be either transformed to a categorical feature or be omitted in from the data. It is not 
+
+I do not recommend using this for data with more than 50 features since it creates too many plots. However some parts of this can of course be commented out to accommodate the many features. 
+
+## Missing values {.tabset}
+
+### Barplot and table of Missing values by each variable
+
+This is a table of the missing values counted in each feature/variable
+```{r,message=F,warning=F}
+Data %>% is.na() %>% 
+  colSums() %>% t() %>% 
+  as.tibble() %>% 
+  pivot_longer(cols = everything()) %>% 
+  rename("Feature"=name,
+         "Missing_values" = value) %>% 
+  mutate(Percentage_missing = round(Missing_values/nrow(Data),3)) %>% 
+  knitr::kable(label="Missing values by each variable")
+```
+
+These are barplots of the percentage and count of missing values of each feature 
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE,message=F}
+### Barplot of percentages
+Data %>% is.na() %>% 
+  colSums() %>% t() %>% 
+  as.tibble() %>% 
+  pivot_longer(cols = everything()) %>% 
+  rename("Feature"=name,
+         "Missing_values" = value) %>% 
+  mutate(Percentage_missing = Missing_values/nrow(Data)) %>% 
+  ggplot(aes(Feature,Percentage_missing)) +
+  geom_bar(stat="identity",fill="red") +
+  geom_text(aes(label = round(Percentage_missing,2)),hjust = -0.5) +
+  ylim(0,1) +
+  theme(axis.text.x = element_text(hjust = 1,angle=45)) +
+  ggtitle("Percentage of missing values by variable") +
+  coord_flip() 
+
+### Barplot of counts
+Data %>% is.na() %>% 
+  colSums() %>% t() %>% 
+  as.tibble() %>% 
+  pivot_longer(cols = everything()) %>% 
+  rename("Feature"=name,
+         "Missing_values" = value) %>% 
+  mutate(Percentage_missing = Missing_values/nrow(Data)) %>% 
+  ggplot(aes(Feature,Missing_values)) +
+  geom_bar(stat="identity",fill="red") +
+  geom_text(aes(label = Missing_values),hjust = -0.5) +
+  theme(axis.text.x = element_text(hjust = 1,angle=45)) +
+  ggtitle("count of missing values by variable") +
+  coord_flip() 
+
+```
+
+### Missing values by levels in categorical features
+Count the observed number of missing values within the data at each level of each categorical value 
+
+#### Table
+```{r,message=F,warning=F}
+## Create a function to count missing values in the data for the levels of categorical features
+count_na_obs <- function(name,val){
+  if(is.na(val)==F){
+    Data %>% 
+    rename(all_of(c(col1=name))) %>% 
+    filter(col1==val) %>% 
+    is.na() %>% 
+    colSums %>% 
+    sum()
+  } else{
+    Data %>% 
+    rename(all_of(c(col1=name))) %>% 
+    filter(is.na(col1)==T) %>% 
+    is.na() %>% 
+    colSums %>% 
+    sum()
+  }
+}
+## Execute
+Data %>% 
+  pivot_longer(cols = categorical_features) %>% 
+  group_by(name,value) %>% 
+  nest() %>% 
+  select(-data) %>% 
+  mutate(value =as.character(value)) %>% 
+  mutate(
+    Missing_values_count = map2_int(name,value,~(count_na_obs(.x,.y)
+  ))) %>% 
+  knitr::kable(label = "Count of missing values in Data at each level of every category")
+```
+
+#### Barplots
+```{r,fig.height=6,fig.show='hold',out.width="50%",message=FALSE,echo=TRUE,results='hide',warning=FALSE,fig.align='center'}
+Data %>% 
+  pivot_longer(cols = categorical_features) %>% 
+  group_by(name,value) %>% 
+  nest() %>% 
+  select(-data) %>% 
+  mutate(value =as.character(value)) %>% 
+  mutate(
+    Missing_values_count = map2_int(name,value,~(count_na_obs(.x,.y)
+  ))) %>% 
+  ggplot(aes(value,Missing_values_count,fill=name)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label = Missing_values_count),vjust=1.5) +
+  facet_wrap(~name,scales = "free")
+  
+```
+
+## Analysis of strictly numerical variables {.tabset}
+
+The following plots will be data visualisations of the strictly numerical features.
+
+```{r,echo=TRUE}
+# Define the numerical data
+numdat <- Data %>% select(where(is.numeric)) %>% na.omit()
+```
+
+```{r,echo=TRUE,warning=FALSE}
+# Pivot the data longer so we can nest 
+numdat_piv <- numdat %>% 
+  pivot_longer(cols = everything(),names_to = "feature",values_to = "value")
+
+# Nest the data to easier pull out a plot for each numerical columns
+numdat_nest <- numdat_piv %>% 
+  group_by(feature) %>%  
+  nest()
+
+## For 2d plots where we need two variables we need to have all possible combinations of variables we can have. 
+
+all_num_combinations <- combn(numerical_features,2)
+
+all_num_combinations <- all_num_combinations %>% t() %>% as.tibble() %>% 
+  rename("name_1" = V1,"name_2"=V2)
+
+## Gather the combinations from the pivoted dataframe and get data for 2D plots
+
+data_for_2d <- all_num_combinations %>% 
+  mutate(
+    numdat_piv_subset = map2(name_1,name_2,~(
+      numdat_piv %>% filter(feature %in% c(.x,.y))
+    )
+  ))
+
+## Pivot the date wider so we have a dataframe of the 2 chosen features
+
+data_for_2d <- data_for_2d %>% 
+  mutate(
+    numdat_piv_subset = map(numdat_piv_subset,~(
+      .x %>% 
+        pivot_wider(names_from = feature) %>% unnest()
+    )
+  ))
+```
+
+### Distributions (Histograms)
+
+```{r,fig.show='hold',out.width="50%",message=FALSE,echo=TRUE,results='hide',warning=FALSE}
+numdat_nest %>% 
+  mutate(
+    hists = map2(data,feature,~(
+      .x %>% 
+        ggplot(aes(value)) +
+        geom_histogram(fill="steelblue",color="white") +
+        xlab(.y) +
+        ggtitle(paste("Histogram of",.y))
+    )
+  )) %>% pull(hists)
+
+
+```
+
+
+### Heatmap
+
+```{r,fig.height=10,fig.align='center'}
+numdat %>% 
+  cor() %>% 
+  as.tibble() %>% 
+  mutate(names = numerical_features) %>% 
+  pivot_longer(cols=-names,names_to = "variables",values_to = "correlation") %>% 
+  ggplot(aes(x = names, y = variables, fill = correlation)) +
+  geom_tile() +
+  geom_text(aes(label = round(correlation, 2)), color = "black", size = 3) +  # Add text on each tile
+  scale_fill_gradientn(colors = c("blue", "white", "red")) + 
+  labs(title = "Heatmap of numerical values", x = "Column", y = "Row", fill = "correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### scatterplots
+
+#### Scatterplots one by one
+```{r,fig.show='hold',out.width="50%",results='hide'}
+
+### Each plot sepperately ()
+data_for_2d %>% 
+  mutate(
+    scatterplots = pmap(list(name_1,name_2,numdat_piv_subset),~(
+        ..3 %>% 
+          rename(all_of(c(col1=..1,col2=..2))) %>% 
+          ggplot(aes(col1,col2)) +
+          xlab(..1) +
+          ylab(..2) +
+          geom_point() +
+          ggtitle(paste("Scatterplot of",paste(..1,..2,sep = " and ")))
+    )
+  )) %>% 
+  pull()
+
+  
+```
+
+#### Scatterplots faceted by variables.
+
+These are plots where we keep one variable for the x-axis constant, but we let the y-axis change. 
+
+```{r,fig.show='hold',out.width="50%",results='hide'}
+### Plots faceted by variable
+
+data_for_2d %>% 
+  mutate(
+    testing = pmap(list(name_1,name_2,numdat_piv_subset),~(
+      ..3 %>% 
+        rename(all_of(c(col1 = ..1,col2 = ..2)))
+    )
+  )) %>% 
+  select(-numdat_piv_subset) %>% 
+  unnest(testing) %>% 
+  group_by(name_1) %>%
+  nest() %>% 
+  mutate(
+    faceted_scatterplot = map2(name_1,data,~(
+      .y %>% 
+        ggplot(aes(col1,col2)) +
+        geom_point() +
+        xlab(.x) +
+        ylab(data$name_2) +
+        facet_wrap(~name_2,scales = "free") +
+        ggtitle(paste("scatterplot_of_variables_faceted by",.x))
+    )
+  )) %>% 
+  pull(faceted_scatterplot)
+  
+  
+```
+
+### Density plots 
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE}
+
+### Density plots easch seperately
+
+
+data_for_2d %>% 
+  mutate(
+    densityplots = pmap(list(name_1,name_2,numdat_piv_subset),~(
+        ..3 %>% 
+          rename(all_of(c(col1=..1,col2=..2))) %>% 
+          ggplot(aes(col1,col2)) +
+          xlab(..1) +
+          ylab(..2) +
+          geom_density_2d_filled() +
+          ggtitle(paste("2d density of",paste(..1,..2,sep = " and ")))
+    )
+  )) %>% 
+  pull(densityplots)
+```
+
+### Lineplots
+
+#### Lineplots faceted by variable
+
+```{r,fig.show='hold',out.width="50%",results='hide'}
+
+### Density plots easch seperately
+
+
+data_for_2d %>% 
+  mutate(
+    lineplots = pmap(list(name_1,name_2,numdat_piv_subset),~(
+        ..3 %>% 
+          rename(all_of(c(col1=..1,col2=..2))) %>% 
+          ggplot(aes(col1,col2)) +
+          xlab(..1) +
+          ylab(..2) +
+          geom_line() +
+          ggtitle(paste("lineplot of",paste(..1,..2,sep = " and ")))
+    )
+  )) %>% 
+  pull(lineplots)
+
+
+```
+#### Lineplots faceted by variable 
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE}
+### Faceted by variable
+data_for_2d %>% 
+  mutate(
+    data_renamed = pmap(list(name_1,name_2,numdat_piv_subset),~(
+      ..3 %>% 
+        rename(all_of(c(col1 = ..1,col2 = ..2)))
+    )
+  )) %>% 
+  select(-numdat_piv_subset) %>% 
+  unnest(data_renamed) %>% 
+  group_by(name_1) %>%
+  nest() %>% 
+  mutate(
+    faceted_lineplots = map2(name_1,data,~(
+      .y %>% 
+        ggplot(aes(col1,col2)) +
+        geom_line() +
+        xlab(.x) +
+        ylab(data$name_2) +
+        facet_wrap(~name_2,scales = "free") +
+        ggtitle(paste("lineplots_faceted by",.x))
+    )
+  )) %>% 
+  pull(faceted_lineplots)
+```
+
+### PCA
+
+```{r,fig.show='hold',out.width="50%"}
+for(i in 1:length(numerical_features)){
+pca_plot <- numdat %>% 
+  na.omit() %>% 
+  prcomp(center = T,scale. = T) %>% 
+  augment(numdat) %>% 
+  rename(all_of(c(col1 = numerical_features[i]))) %>% 
+  ggplot(aes(.fittedPC1,.fittedPC2,color=col1)) +
+  labs(color=numerical_features[i]) +
+  geom_point() 
+print(pca_plot)
+}
+```
+
+
+## Analysis of Catagorical variables {.tabset}
+
+```{r,echo=TRUE,message=FALSE,warning=FALSE}
+## Get all categorical data
+cat_dat <- Data %>% select(where(is.factor))
+
+## Pivot longer to group by features
+cat_dat_piv <- cat_dat %>% 
+  pivot_longer(everything(),names_to = "Feature",values_to = "value")
+
+## All combinations of categorical variables
+
+all_cat_combinations <- expand_grid(categorical_features,categorical_features)
+
+colnames(all_cat_combinations) <- c("name_1","name_2")
+
+### Combinations for 
+cat_dat_comb_data <- all_cat_combinations %>% 
+  mutate(
+    data = map2(name_1,name_2,~(
+      cat_dat_piv %>% filter(Feature %in% c(.x,.y))
+    ))
+  )
+```
+
+```{r,eval=FALSE,echo=F}
+### Save the binary features for proportion analysis
+
+binary_variables <- cat_dat_piv %>% 
+  group_by(Feature) %>% 
+  summarise(
+    number_of_categoprical_values = n_distinct(value),
+    missing_values = sum(is.na(value))
+  ) %>% 
+  filter(number_of_categoprical_values==2) %>% 
+  pull(Feature)
+```
+
+### Table of counts
+
+#### Count of levels to each category
+
+```{r}
+cat_dat_piv %>% 
+  group_by(Feature) %>% 
+  summarise(
+    Levels_of_category = n_distinct(value)
+  ) %>% 
+  knitr::kable()
+```
+
+
+#### Count of each level of each category
+
+```{r,echo=TRUE,warning=FALSE,message=F}
+## Table format
+cat_dat_piv %>% 
+  group_by(Feature,value) %>% 
+  summarise(
+    count =n(),
+    percentage_of_data = round(count/nrow(Data),2)
+  ) %>%   
+  knitr::kable(caption = "Levels and missing values of all individual categorical values")
+```
+
+### Barplot of counts overall and by each variable
+
+```{r,fig.height=10,warning=FALSE,out.width="50%",fig.align='center',fig.width=10}
+### Overall counts
+cat_dat_piv %>% 
+  mutate(feature_value = paste(Feature,value,sep = "-")) %>% 
+  ggplot(aes(factor(feature_value))) +
+  geom_bar(stat = "count",fill="red") +
+  coord_flip() +
+  labs(title = "Overall distribution of counts across categorical values", x="Category-levels") +
+  theme(axis.text.y = element_text(face = "bold.italic"))
+```
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE}
+### Barplot by eachh variable
+
+cat_dat_piv %>% 
+  group_by(Feature) %>% 
+  nest() %>% 
+  mutate(
+    barplot = map2(data,Feature,~(
+      .x %>% 
+        ggplot(aes(value,fill=value)) +
+        geom_bar(stat="count",position = "dodge") +
+        ggtitle(paste("Barplot of variable",.y))
+    )
+  )) %>% 
+  pull(barplot)
+
+
+```
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE}
+### Barplot by each variable but coloured by the levels of other categories. 
+
+cat_dat_comb_data %>% 
+  mutate(
+    data = pmap(list(data,name_2,name_1),~(
+      ..1 %>% 
+        pivot_wider(names_from = "Feature",values_from = value) %>% 
+        rename(all_of(c("col1"=..3,"col2"=..2))) %>% unnest()
+    )
+  )) %>% unnest(data) %>% 
+  group_by(name_1) %>% 
+  nest() %>% 
+  mutate(barplots = map2(data,name_1,~(
+  .x %>% 
+  ggplot(aes(col2,fill=col1)) +
+  geom_bar(stat="count") +
+  labs(fill = .y) +
+  facet_wrap(~name_2,scales = "free") +
+  ggtitle(paste("Barplot of all categories coloured by levels of",name_1))
+  ))) %>% 
+  pull(barplots)
+  
+```
+
+## Analysis of relations between catagorical and numerical variables {.tabset}
+
+Some trouble with this is that there are gonna be a lot of plots, but this is just what happens. You can ofcourse limit the number of plots here by choosing a smaller selection of numerical and categorical features. 
+
+For this we will need every combination of categorical and numerical feature. 
+
+```{r}
+## Collect all combinations of categorical and numerical feautures
+catnum_combs <- expand_grid(categorical_features,numerical_features) 
+
+## Pivot the data 
+datapiv <-  Data %>% 
+  pivot_longer(categorical_features,names_to = "feature",values_to = "value")
+
+## Make sure feauture is the chosen categorical value
+
+```
+
+### Distribution/Histograms by category 
+
+We would like to make a histogram for every numerical feature at every level og each cateogorical feature. So in the end we will facet by the categorical feature. 
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE,message=FALSE}
+catnum_combs %>% 
+  mutate(get_data = map2(categorical_features,numerical_features,~(
+    datapiv %>% 
+      filter(feature==.x) %>% 
+      select(feature,.y,value) %>% 
+      rename(all_of(c(col1 = .y)))
+  ))) %>% 
+  unnest() %>% 
+  group_by(categorical_features,numerical_features) %>% 
+  nest() %>% 
+  mutate(
+    hist_plots = map(data,~(
+      .x %>% 
+        ggplot(aes(col1)) +
+        geom_histogram(fill="steelblue",color="white") +
+        facet_wrap(~value,scales = "free_y") +
+        ggtitle(paste("Histogram of",numerical_features,"faceted by",categorical_features))
+    ))
+  ) %>% pull(hist_plots)
+```
+
+### Ridgeplots  
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE,message=FALSE}
+catnum_combs %>% 
+  mutate(get_data = map2(categorical_features,numerical_features,~(
+    datapiv %>% 
+      filter(feature==.x) %>% 
+      select(feature,.y,value) %>% 
+      rename(all_of(c(col1 = .y)))
+  ))) %>% 
+  unnest() %>% 
+  group_by(categorical_features) %>% 
+  nest() %>% 
+  mutate(
+    boxplots = map(data,~(
+      .x %>% 
+        ggplot(aes(col1,value,fill=value)) +
+        geom_density_ridges() +
+        facet_wrap(~numerical_features,scales = "free") +
+        ggtitle(paste("Boxplot of numerical features, faceted by",categorical_features))
+    ))
+  ) %>% pull(boxplots)
+```
+
+### Boxplots by category
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE}
+catnum_combs %>% 
+  mutate(get_data = map2(categorical_features,numerical_features,~(
+    datapiv %>% 
+      filter(feature==.x) %>% 
+      select(feature,.y,value) %>% 
+      rename(all_of(c(col1 = .y)))
+  ))) %>% 
+  unnest() %>% 
+  group_by(categorical_features) %>% 
+  nest() %>% 
+  mutate(
+    boxplots = map(data,~(
+      .x %>% 
+        ggplot(aes(value,col1)) +
+        geom_boxplot() +
+        facet_wrap(~numerical_features,scales = "free") +
+        ggtitle(paste("Boxplot of numerical features, faceted by",categorical_features))
+    ))
+  ) %>% pull(boxplots)
+```
+
+
+### PCA overall coloured by category
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE,message=F}
+for(i in 1:length(categorical_features)){
+pca_plot <- numdat %>% 
+  na.omit() %>% 
+  prcomp(center = T,scale. = T) %>% 
+  augment(numdat %>% inner_join(Data)) %>% 
+  rename(all_of(c(col1 = categorical_features[i]))) %>% 
+  ggplot(aes(.fittedPC1,.fittedPC2,color=col1)) +
+  labs(color=categorical_features[i]) +
+  geom_point() 
+print(pca_plot)
+}
+```
+
+### PCA by category
+
+This is an exploration of whether the numerical data segments better or worse under certain categories. 
+
+NOTICE: if one level of a category is missing it might be because there were not enough observations or one numerical variable was constant under this level. 
+
+```{r,fig.show='hold',out.width="50%",results='hide',warning=FALSE}
+datapiv %>% 
+  na.omit() %>% 
+  group_by(feature,value) %>% 
+  nest() %>% 
+  mutate(obs_inlevel = map_int(data,~(nrow(.x)))) %>% 
+  filter(obs_inlevel>45) %>% 
+  mutate(
+    PCA = map(data,~(
+      .x %>% select(where(is.numeric)) %>% na.omit() %>%  prcomp(center=T,scale. = T)
+    )
+  )) %>%
+  mutate(
+    data_aug = map2(data,PCA,~(
+      .y %>% augment(data)
+    ))
+  ) %>% 
+  select(-c(data,obs_inlevel,PCA)) %>% 
+  unnest() %>% 
+  ungroup() %>% 
+  group_by(feature) %>% 
+  nest() %>% 
+  mutate(
+    biplot = map2(feature,data,~(
+      .y %>% 
+        ggplot(aes(.fittedPC1,.fittedPC2)) +
+        geom_point(color="steelblue") +
+        facet_wrap(~(value),scales="free") +
+        ggtitle(paste("biplot of data,faceted by",.x))
+    )
+  )) %>% 
+  pull(biplot)
+  
+
+```
+
+
